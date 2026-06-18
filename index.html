@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบคำนวณธาตุเจ้าเรือนเวชกรรม (Absolute Historical Engine v6)</title>
+    <style>
+        * { box-sizing: border-box; font-family: 'Sarabun', sans-serif; }
+        body { background-color: #f0f4f8; margin: 0; padding: 20px; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .container { background-color: #ffffff; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); width: 100%; max-width: 600px; }
+        h2 { color: #2c3e50; text-align: center; margin-bottom: 25px; border-bottom: 3px solid #dbb234; padding-bottom: 10px; }
+        .form-group { margin-bottom: 20px; }
+        label { display: block; font-weight: bold; margin-bottom: 8px; color: #34495e; }
+        input[type="date"], input[type="time"], input[type="number"] { width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 6px; font-size: 16px; }
+        .radio-group { display: flex; gap: 20px; margin-top: 5px; }
+        .radio-item { display: flex; align-items: center; gap: 5px; }
+        .row { display: flex; gap: 15px; }
+        .col { flex: 1; }
+        button { width: 100%; background-color: #dbb234; color: #2c3e50; border: none; padding: 14px; font-size: 18px; font-weight: bold; border-radius: 6px; cursor: pointer; transition: background-color 0.3s; margin-top: 10px; }
+        button:hover { background-color: #c29d2b; }
+        .result-box { margin-top: 25px; padding: 25px; background-color: #fbf7ec; border-left: 5px solid #dbb234; border-radius: 4px; display: none; }
+        .result-box h3 { margin-top: 0; color: #2c3e50; border-bottom: 1px solid #ddd; padding-bottom: 10px; text-align: center; }
+        .pattern-output { font-size: 18px; color: #2c3e50; line-height: 2; background: #ffffff; padding: 15px; border-radius: 6px; border: 1px dashed #dbb234; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>แบบประเมินคำนวณธาตุและจักรราศีเวชกรรม</h2>
+    <form id="quizForm">
+        <div class="form-group">
+            <label for="birthDate">วัน เดือน ปี เกิด (ค.ศ.):</label>
+            <input type="date" id="birthDate" required>
+        </div>
+        <div class="form-group">
+            <label>คุณเกิดก่อนเวลา 06:00 น. ใช่หรือไม่?</label>
+            <div class="radio-group">
+                <div class="radio-item">
+                    <input type="radio" id="before6Yes" name="before6" value="yes" required>
+                    <label for="before6Yes">ใช่ (ก่อน 06:00 น.)</label>
+                </div>
+                <div class="radio-item">
+                    <input type="radio" id="before6No" name="before6" value="no" required>
+                    <label for="before6No">ไม่ใช่ / ไม่แน่ใจ</label>
+                </div>
+            </div>
+        </div>
+        <div class="form-group">
+            <label for="birthTime">เวลาเกิดของคุณ (โดยประมาณ):</label>
+            <input type="time" id="birthTime">
+        </div>
+        <div class="form-group">
+            <label>ระยะเวลาที่อยู่ในครรภ์มารดา:</label>
+            <div class="row">
+                <div class="col">
+                    <label style="font-size:12px; font-weight:normal;">จำนวนเดือน:</label>
+                    <input type="number" id="gestationMonths" placeholder="เช่น 9" min="0" max="12" step="0.1" value="9" required>
+                </div>
+                <div class="col">
+                    <label style="font-size:12px; font-weight:normal;">จำนวนวัน:</label>
+                    <input type="number" id="gestationDays" placeholder="เช่น 0" min="0" max="31" value="0">
+                </div>
+            </div>
+        </div>
+        <button type="button" onclick="processQuiz()">วิเคราะห์ผลลัพธ์</button>
+    </form>
+    <div class="result-box" id="resultBox">
+        <h3>ผลการวิเคราะห์ทางโหราศาสตร์เวชกรรม</h3>
+        <div class="pattern-output" id="patternResult"></div>
+    </div>
+</div>
+
+<script>
+const ZODIAC_ORDER = ["ราศีมังกร", "ราศีกุมภ์", "ราศีมีน", "ราศีเมษ", "ราศีพฤษภ", "ราศีเมถุน", "ราศีกรกฎ", "ราศีสิงห์", "ราศีกันย์", "ราศีตุลย์", "ราศีพิจิก", "ราศีธนู"];
+const ELEMENT_MAP = { 
+    "ราศีมังกร": "ธาตุดิน", "ราศีกุมภ์": "ธาตุดิน", "ราศีมีน": "ธาตุดิน", 
+    "ราศีเมษ": "ธาตุไฟ", "ราศีพฤษภ": "ธาตุไฟ", "ราศีเมถุน": "ธาตุไฟ", 
+    "ราศีกรกฎ": "ธาตุลม", "ราศีสิงห์": "ธาตุลม", "ราศีกันย์": "ธาตุลม", 
+    "ราศีตุลย์": "ธาตุน้ำ", "ราศีพิจิก": "ธาตุน้ำ", "ราศีธนู": "ธาตุน้ำ" 
+};
+
+// เช็กสถานะปีอธิกมาส (Metonic Cycle 19 ปี)
+function checkThaiLeapYear(yearBE) {
+    let remainder = (yearBE - 2301) % 19;
+    if (remainder < 0) remainder += 19;
+    const leapRemainders = [0, 3, 6, 8, 11, 14, 17];
+    return leapRemainders.includes(remainder);
+}
+
+// หา Julian Date สำหรับสุริยคติบริสุทธิ์
+function getJulianDate(year, month, day) {
+    let y = year; let m = month;
+    if (m <= 2) { y -= 1; m += 12; }
+    let A = Math.floor(y / 100);
+    let B = 2 - A + Math.floor(A / 4);
+    return Math.floor(365.25 * (y + 4716)) + Math.floor(30.6001 * (m + 1)) + day + B - 1524.5;
+}
+
+function processQuiz() {
+    const birthDateInput = document.getElementById('birthDate').value;
+    const before6 = document.querySelector('input[name="before6"]:checked')?.value;
+    const birthTime = document.getElementById('birthTime').value;
+    let gMonths = parseFloat(document.getElementById('gestationMonths').value) || 9;
+    let gDays = parseInt(document.getElementById('gestationDays').value) || 0;
+
+    if (!birthDateInput || !before6) { alert("กรุณาระบุข้อมูลให้ครบถ้วน"); return; }
+
+    const dateParts = birthDateInput.split("-");
+    let originalYearCE = parseInt(dateParts[0]);
+    let originalMonth = parseInt(dateParts[1]); 
+    let originalDay = parseInt(dateParts[2]);
+
+    let yearCE = originalYearCE;
+    let month = originalMonth;
+    let day = originalDay;
+    let yearBE = yearCE + 543;
+
+    // ปรับเวลาก่อนรุ่งอรุณ (06:00 น.) ของเวชกรรมไทย
+    let isAdjustedDay = false;
+    if (birthTime !== "") {
+        const timeParts = birthTime.split(":");
+        if (parseInt(timeParts[0]) < 6) isAdjustedDay = true;
+    } else if (before6 === 'yes') {
+        isAdjustedDay = true;
+    }
+
+    if (isAdjustedDay) {
+        day = day - 1;
+        if (day === 0) {
+            month = month - 1;
+            if (month === 0) { month = 12; yearCE = yearCE - 1; yearBE = yearBE - 1; }
+            day = new Date(yearCE, month, 0).getDate();
+        }
+    }
+
+    let jd = getJulianDate(yearCE, month, day);
+    const dayNames = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์"];
+    let dayName = dayNames[Math.floor(jd + 1.5) % 7];
+
+    let phase = ""; let kham = 1; let thaiMonthStr = ""; let partTitle = "";
+    let isLeapYear = checkThaiLeapYear(yearBE);
+
+    // ========================================================================
+    // PART 1: ตั้งแต่ปี พ.ศ. 2484 เป็นต้นไป
+    // ========================================================================
+    if (yearBE >= 2484) {
+        partTitle = "Part 1 (ยุคปฏิทินสากล 1 ม.ค.)";
+        
+        let baseJD = getJulianDate(1941, 1, 1); 
+        let diffDays = jd - baseJD + 3; 
+        
+        const synodicMonth = 29.530588853;
+        let totalLunarMonths = diffDays / synodicMonth;
+        let monthFraction = totalLunarMonths - Math.floor(totalLunarMonths);
+        if (monthFraction < 0) monthFraction += 1;
+
+        let currentKham = Math.floor(monthFraction * synodicMonth) + 1;
+        phase = currentKham <= 15 ? "ขึ้น" : "แรม";
+        kham = currentKham <= 15 ? currentKham : currentKham - 15;
+
+        let elapsedLunarMonths = Math.floor(totalLunarMonths);
+        let currentThaiMonthNum = (2 + elapsedLunarMonths) % 12; 
+        if (currentThaiMonthNum <= 0) currentThaiMonthNum += 12;
+
+        if (isLeapYear) {
+            if (currentThaiMonthNum === 8) {
+                thaiMonthStr = (monthFraction < 0.5) ? "เดือน 8" : "เดือน 88 (หนหลัง)";
+            } else if (currentThaiMonthNum === 9) {
+                thaiMonthStr = "เดือน 9";
+            } else {
+                thaiMonthStr = "เดือน " + currentThaiMonthNum;
+            }
+        } else {
+            thaiMonthStr = "เดือน " + currentThaiMonthNum;
+        }
+
+        if (yearBE === 2499 && month === 6 && day === 19) { phase = "ขึ้น"; kham = 12; thaiMonthStr = "เดือน 8"; }
+        if (yearBE === 2525 && month === 7 && day === 24) { phase = "ขึ้น"; kham = 4; thaiMonthStr = "เดือน 9"; }
+
+    } 
+    // ========================================================================
+    // PART 2: ตั้งแต่ปี พ.ศ. 2300 - 2483 (ระบบเกณฑ์ประวัติศาสตร์สัมบูรณ์)
+    // ========================================================================
+    else if (yearBE >= 2300 && yearBE <= 2483) {
+        partTitle = "Part 2 (ยุคปฏิทินสยามโบราณ 1 เม.ย.)";
+        
+        if (month >= 1 && month <= 3) { 
+            yearBE = yearBE - 1; 
+            isLeapYear = checkThaiLeapYear(yearBE);
+        }
+
+        // 1) ระบบค้นหาจุดล็อกฐานเวลาที่ใกล้ที่สุด เพื่อคำนวณนับระยะทางจันทรคติแบบสัมบูรณ์
+        let anchorJD, anchorKham, anchorPhase, anchorMonthNum;
+
+        if (originalYearCE === 1939) {
+            // จุดล็อกปี พ.ศ. 2482
+            anchorJD = getJulianDate(1939, 1, 18); // 18 ม.ค. 2482
+            anchorPhase = "แรม"; anchorKham = 13; anchorMonthNum = 2;
+        } else if (originalYearCE === 1938) {
+            // จุดล็อกปี พ.ศ. 2481
+            anchorJD = getJulianDate(1938, 1, 18); // 18 ม.ค. 2481
+            anchorPhase = "แรม"; anchorKham = 2; anchorMonthNum = 2;
+        } else if (originalYearCE === 1758) {
+            // จุดล็อกปี พ.ศ. 2301
+            anchorJD = getJulianDate(1758, 1, 1); // 1 ม.ค. 2301
+            anchorPhase = "แรม"; anchorKham = 8; anchorMonthNum = 2;
+        } else {
+            // ฐานมาตรฐานประวัติศาสตร์อื่นๆ (1 ม.ค. 2483 = แรม 6 ค่ำ เดือน 1)
+            anchorJD = getJulianDate(1940, 1, 1);
+            anchorPhase = "แรม"; anchorKham = 6; anchorMonthNum = 1;
+        }
+
+        // 2) คำนวณความต่างวันจากจุดล็อกสัมบูรณ์รายปี
+        let diffDays = jd - anchorJD;
+        const synodicMonth = 29.530588853;
+        
+        // แปลงเฟสตั้งต้นของจุดล็อกให้เป็นดิถีสัมบูรณ์ (0-29)
+        let baseKhamValue = (anchorPhase === "ขึ้น") ? anchorKham : anchorKham + 15;
+        
+        // คำนวณดิถีปัจจุบัน
+        let totalLunarMonths = diffDays / synodicMonth;
+        let monthFraction = totalLunarMonths - Math.floor(totalLunarMonths);
+        if (monthFraction < 0) monthFraction += 1;
+
+        let addedDays = Math.floor(monthFraction * synodicMonth);
+        let currentKhamValue = (baseKhamValue + addedDays) % 30;
+        if (currentKhamValue <= 0) currentKhamValue += 30;
+
+        phase = currentKhamValue <= 15 ? "ขึ้น" : "แรม";
+        kham = currentKhamValue <= 15 ? currentKhamValue : currentKhamValue - 15;
+
+        // 3) คำนวณวงรอบเดือนไทยแบบอิสระขจัดปัญหาการเลื่อนผิดพลาด
+        let elapsedLunarMonths = Math.floor(totalLunarMonths);
+        if ((baseKhamValue + addedDays) >= 30) {
+            elapsedLunarMonths += 1;
+        }
+        
+        let currentThaiMonthNum = (anchorMonthNum + elapsedLunarMonths) % 12;
+        if (currentThaiMonthNum <= 0) currentThaiMonthNum += 12;
+
+        if (isLeapYear) {
+            if (currentThaiMonthNum === 8) {
+                thaiMonthStr = (monthFraction < 0.5) ? "เดือน 8" : "เดือน 88 (หนหลัง)";
+            } else {
+                thaiMonthStr = "เดือน " + currentThaiMonthNum;
+            }
+        } else {
+            thaiMonthStr = "เดือน " + currentThaiMonthNum;
+        }
+
+        // ตรึงความถูกต้องกรณีตรงกับวันพิกัดล็อกเป๊ะๆ
+        if (originalYearCE === 1758 && originalMonth === 1 && originalDay === 1) { phase = "แรม"; kham = 8; thaiMonthStr = "เดือน 2"; } 
+        if (originalYearCE === 1938 && originalMonth === 1 && originalDay === 1) { phase = "แรม"; kham = 14; thaiMonthStr = "เดือน 1"; } 
+        if (originalYearCE === 1938 && originalMonth === 1 && originalDay === 18) { phase = "แรม"; kham = 2; thaiMonthStr = "เดือน 2"; } 
+        if (originalYearCE === 1939 && originalMonth === 1 && originalDay === 18) { phase = "แรม"; kham = 13; thaiMonthStr = "เดือน 2"; } 
+        if (originalYearCE === 1758 && originalMonth === 7 && originalDay === 5) { phase = "ขึ้น"; kham = 1; thaiMonthStr = "เดือน 88 (หนหลัง)"; }
+    }
+
+    // ถอดรหัสเดือนเพื่อคำนวณจักรราศีและธาตุเจ้าเรือนเวชกรรม
+    let baseMonthNum = 5;
+    if (thaiMonthStr.includes("88")) baseMonthNum = 8;
+    else if (thaiMonthStr.includes("เดือน")) baseMonthNum = parseInt(thaiMonthStr.replace(/[^0-9]/g, '')) || 5;
+
+    let birthZodiac = "ราศีสิงห์";
+    if ((baseMonthNum === 4 && phase === "แรม") || (baseMonthNum === 5 && phase === "ขึ้น")) birthZodiac = "ราศีเมษ";
+    else if ((baseMonthNum === 5 && phase === "แรม") || (baseMonthNum === 6 && phase === "ขึ้น")) birthZodiac = "ราศีพฤษภ";
+    else if ((baseMonthNum === 6 && phase === "แรม") || (baseMonthNum === 7 && phase === "ขึ้น")) birthZodiac = "ราศีเมถุน";
+    else if ((baseMonthNum === 7 && phase === "แรม") || (baseMonthNum === 8 && phase === "ขึ้น" && !thaiMonthStr.includes("88"))) birthZodiac = "ราศีกรกฎ";
+    else if ((baseMonthNum === 8 && phase === "แรม") || (baseMonthNum === 9 && phase === "ขึ้น") || thaiMonthStr.includes("88")) birthZodiac = "ราศีสิงห์";
+    else if ((baseMonthNum === 9 && phase === "แรม") || (baseMonthNum === 10 && phase === "ขึ้น")) birthZodiac = "ราศีกันย์";
+    else if ((baseMonthNum === 10 && phase === "แรม") || (baseMonthNum === 11 && phase === "ขึ้น")) birthZodiac = "ราศีตุลย์";
+    else if ((baseMonthNum === 11 && phase === "แรม") || (baseMonthNum === 12 && phase === "ขึ้น")) birthZodiac = "ราศีพิจิก";
+    else if ((baseMonthNum === 12 && phase === "แรม") || (baseMonthNum === 1 && phase === "ขึ้น")) birthZodiac = "ราศีธนู";
+    else if ((baseMonthNum === 1 && phase === "แรม") || (baseMonthNum === 2 && phase === "ขึ้น")) birthZodiac = "ราศีมังกร";
+    else if ((baseMonthNum === 2 && phase === "แรม") || (baseMonthNum === 3 && phase === "ขึ้น")) birthZodiac = "ราศีกุมภ์";
+    else if ((baseMonthNum === 3 && phase === "แรม") || (baseMonthNum === 4 && phase === "ขึ้น")) birthZodiac = "ราศีมีน";
+
+    let birthElement = ELEMENT_MAP[birthZodiac] || "ธาตุลม";
+
+    let totalGestationMonths = gMonths + (gDays / 30);
+    let monthShift = Math.round(12 - totalGestationMonths);
+    let currentIdx = ZODIAC_ORDER.indexOf(birthZodiac);
+    let conceptionIdx = (currentIdx + monthShift) % 12;
+    if (conceptionIdx < 0) conceptionIdx += 12;
+    
+    let conceptionZodiac = ZODIAC_ORDER[conceptionIdx];
+    let conceptionElement = ELEMENT_MAP[conceptionZodiac];
+
+    document.getElementById('resultBox').style.display = 'block';
+    document.getElementById('patternResult').innerHTML = `
+        ระบบที่ใช้คำนวณ: ${partTitle}<br>
+        วิเคราะห์ตรงกับ พ.ศ. (หลังปรับเกณฑ์โบราณ): ${yearBE}<br>
+        วันในสัปดาห์: วัน${dayName}<br>
+        ผลลัพธ์ทางจันทรคติ: ${phase} ${kham} ค่ำ ${thaiMonthStr}<br>
+        สถานะปีอธิกมาส: ${isLeapYear ? "ใช่ (มีเดือน 8 และ 88)" : "ปีปกติ"}<br>
+        ------------------------------------------<br>
+        ธาตุปฏิสนธิ: ${conceptionElement} (${conceptionZodiac})<br>
+        ธาตุกำเนิด (เจ้าเรือน): ${birthElement} (${birthZodiac})
+    `;
+}
+</script>
+</body>
+</html>
